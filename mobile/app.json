@@ -46,10 +46,6 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
       "output": "static"
-    },
-    "experiments": {
-      "//": "GitHub Pages serves a project site under /<repo>, so every asset and route URL needs that prefix baked in at export time.",
-      "baseUrl": "/paxcast"
     }
   }
 }

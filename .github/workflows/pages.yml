@@ -75,6 +75,11 @@ jobs:
       # site that looks fine and talks to the wrong host, so pay the rebuild.
       - name: Export web bundle
         working-directory: mobile
+        env:
+          # Opt in to the /<repo> asset prefix. app.config.js applies baseUrl
+          # only when this is set, because it is not web-scoped: leaving it in
+          # app.json rewrote the native Android asset URLs too.
+          PAXCAST_WEB_BASE_URL: /paxcast
         run: npx expo export --platform web --clear --output-dir dist
 
       # Pages serves a project site under /<repo>. app.json sets
