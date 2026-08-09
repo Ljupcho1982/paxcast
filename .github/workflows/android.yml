@@ -1,0 +1,74 @@
+# Builds a signed APK and attaches it to a GitHub Release.
+#
+# This is the route to a publicly downloadable APK without a Play Store account.
+# It needs two repository secrets:
+#
+#   EXPO_TOKEN   - from expo.dev > Account settings > Access tokens
+#   API_BASE_URL - the public URL of your deployed PaxCast API
+#
+# Signing keys are managed by EAS (`eas credentials`). Do not commit a keystore.
+
+name: Android APK
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: mobile
+        run: npx tsc --noEmit
+
+      # Bundling catches runtime import errors that tsc cannot see. Failing
+      # here is far cheaper than failing inside a 15-minute cloud build.
+      - name: Verify the bundle builds
+        working-directory: mobile
+        run: npx expo export --platform android --output-dir /tmp/bundle-check
+
+      - name: Build APK on EAS
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_API_BASE_URL: ${{ secrets.API_BASE_URL }}
+        run: eas build --platform android --profile preview --non-interactive --wait --output ../paxcast.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paxcast-apk
+          path: paxcast.apk
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: paxcast.apk
+          body: |
+            PaxCast ${{ github.ref_name }}
+
+            **Prototype build.** Passenger forecasts run on synthetic schedule
+            data, and checkpoint wait times are unvalidated model priors until
+            enough real reports accumulate. Do not use this to decide when to
+            leave for a flight.
+
+            Install: enable "Install unknown apps" for your browser, then open
+            the APK.

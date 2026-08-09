@@ -1,0 +1,34 @@
+{
+  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+  "build": {
+    "preview": {
+      "//": "Installable APK for sideloading and internal testing. This is the profile that produces a file you can hand to someone directly.",
+      "android": { "buildType": "apk" },
+      "distribution": "internal",
+      "channel": "preview",
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "https://paxcast-api.example.com" }
+    },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "http://10.0.2.2:8000" }
+    },
+    "production": {
+      "//": "AAB for Play Store submission. Play does not accept APKs for new apps.",
+      "android": { "buildType": "app-bundle" },
+      "channel": "production",
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "https://paxcast-api.example.com" }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "//": "Requires a Google Play service-account JSON. Never commit this file.",
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}
