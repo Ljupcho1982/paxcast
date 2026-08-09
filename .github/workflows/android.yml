@@ -23,6 +23,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # GITHUB_TOKEN defaults to read-only, which lets the APK build and upload
+    # as an artifact but makes the tag path fail at the last step with
+    # "Resource not accessible by integration". Creating a Release needs write.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
