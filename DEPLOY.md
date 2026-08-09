@@ -97,6 +97,47 @@ never leaves its prior, because the reports keep vanishing.
 
 ---
 
+## Running the whole thing locally instead
+
+No account, no hosting. Everything works, including the contribute screens —
+but only on your machine, and only while both processes are running.
+
+```bash
+pip install -r api/requirements.txt
+cd api && uvicorn main:app --port 8000
+```
+
+Then, in a second terminal:
+
+```bash
+cd mobile
+EXPO_PUBLIC_API_BASE_URL=http://localhost:8000 npx expo export --platform web --clear --output-dir dist
+npx serve dist          # or: python -m http.server 4173 --directory dist
+```
+
+On Windows PowerShell, set the variable separately:
+
+```powershell
+$env:EXPO_PUBLIC_API_BASE_URL = "http://localhost:8000"
+```
+
+Two things worth knowing, both learned the hard way:
+
+- **`--clear` is required.** `EXPO_PUBLIC_*` values are inlined by a Babel
+  transform whose cache key ignores the environment. Without it, changing the
+  API URL and re-exporting yields a byte-identical bundle still pointing at the
+  old host, and the app reports the service unreachable while the server sits
+  there answering fine.
+- **Serve with something that resolves extensionless paths.** `expo export`
+  writes `contribute/airport.html`; `npx serve` maps `/contribute/airport` to
+  it, but `python -m http.server` does not and returns 404. In-app navigation
+  works either way, since the router never asks the server.
+
+There is no mixed-content problem locally, because an `http://` page may call
+an `http://` API. That only breaks once the page is served over HTTPS.
+
+---
+
 ## Alternatives
 
 `render.yaml` is a Render Blueprint, but nothing about the service is

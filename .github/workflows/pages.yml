@@ -66,15 +66,31 @@ jobs:
                  "every data screen will report that the service is unreachable."
           fi
 
+      # --clear is not optional here. EXPO_PUBLIC_* values are inlined by a
+      # Babel transform whose cache key does not include the environment, so a
+      # warm Metro cache silently reuses a bundle built against the previous
+      # API base URL. Observed locally: setting EXPO_PUBLIC_API_BASE_URL and
+      # re-exporting produced a byte-identical bundle still pointing at
+      # 10.0.2.2. A hosted runner starts cold today, but the failure mode is a
+      # site that looks fine and talks to the wrong host, so pay the rebuild.
       - name: Export web bundle
         working-directory: mobile
-        run: npx expo export --platform web --output-dir dist
+        run: npx expo export --platform web --clear --output-dir dist
 
       # Pages serves a project site under /<repo>. app.json sets
       # experiments.baseUrl to match, and .nojekyll stops Pages discarding the
       # _expo directory, whose leading underscore Jekyll treats as private.
       - name: Add .nojekyll
         run: touch mobile/dist/.nojekyll
+
+      # Deep links into dynamic routes have no static file: the export writes
+      # airport/[iata].html, so /airport/SKP is a 404 on any static host. Pages
+      # serves 404.html for unmatched paths, and expo-router resolves the real
+      # route client-side once the app boots -- so shipping index.html as
+      # 404.html turns those 404s into working deep links. Without it, only
+      # in-app navigation reaches an airport, and refreshing that page breaks.
+      - name: Serve dynamic routes via the 404 fallback
+        run: cp mobile/dist/index.html mobile/dist/404.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
