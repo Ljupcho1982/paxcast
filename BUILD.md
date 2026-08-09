@@ -93,18 +93,38 @@ never update an app already published under it.
 
 ### The GitHub Actions route
 
-`.github/workflows/android.yml` builds on every `v*` tag and attaches the APK to
-a GitHub Release. Two repository secrets are needed:
-
-- `EXPO_TOKEN` — expo.dev → Account settings → Access tokens
-- `API_BASE_URL` — the public HTTPS URL of your deployed API
+`.github/workflows/android.yml` builds the APK **on the runner with Gradle** —
+no Expo account, no EAS, no secrets. It runs on every `v*` tag and on manual
+dispatch, uploads the APK as a workflow artifact, and attaches it to a GitHub
+Release when the trigger was a tag.
 
 ```bash
-git tag v0.1.0 && git push --tags
+gh workflow run "Android APK"      # build now
+git tag v0.1.0 && git push --tags  # build and publish a Release
 ```
 
-The workflow typechecks and bundles *before* invoking EAS, so a broken import
-fails in about a minute rather than fifteen.
+One **optional repository variable** (not a secret — it is inlined into the
+client bundle regardless):
+
+- `API_BASE_URL` — the public HTTPS URL of your deployed API
+
+Leave it unset and the build still succeeds, but the APK points at
+`http://10.0.2.2:8000` and the workflow emits a warning saying so.
+
+The workflow typechecks and bundles *before* invoking Gradle, so a broken import
+fails in about a minute rather than twenty.
+
+**Why this runs in CI rather than locally.** `newArchEnabled` is `true`, so the
+app module compiles C++ through CMake and needs the NDK pinned in
+`android/build.gradle` (`26.1.10909125`). That NDK is ~4.6 GB installed; with
+CMake, the Gradle distribution and the dependency graph, a cold local build
+needs on the order of 6.5 GB of free disk. The runner has it; a laptop often
+does not.
+
+**The APK is signed with the React Native debug keystore**, because the Expo
+template's `release` buildType defaults to `signingConfig signingConfigs.debug`.
+That is fine for sideloading and unacceptable for Play. Generate your own
+keystore (above) and wire it into `android/app/build.gradle` before publishing.
 
 ---
 

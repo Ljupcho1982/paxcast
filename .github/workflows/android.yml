@@ -1,19 +1,24 @@
-# Builds a signed APK and attaches it to a GitHub Release.
+# Builds an installable APK on a GitHub runner and attaches it to a Release.
 #
-# This is the route to a publicly downloadable APK without a Play Store account.
-# It needs two repository secrets:
+# This route needs no Expo account and no secrets. The runner supplies the
+# Android SDK, the NDK and CMake, which is the whole reason the build happens
+# here rather than on a developer laptop: RN 0.76 with New Architecture enabled
+# compiles C++ in the app module, and the pinned NDK alone is ~4.6 GB installed.
 #
-#   EXPO_TOKEN   - from expo.dev > Account settings > Access tokens
-#   API_BASE_URL - the public URL of your deployed PaxCast API
+# Optional repository variable (Settings > Secrets and variables > Actions >
+# Variables), not a secret, because it is inlined into the client bundle anyway:
 #
-# Signing keys are managed by EAS (`eas credentials`). Do not commit a keystore.
+#   API_BASE_URL - public HTTPS base URL of the deployed PaxCast API
+#
+# Without it the bundle falls back to app.json's `extra.apiBaseUrl`
+# (http://10.0.2.2:8000), which only resolves inside an Android emulator.
 
 name: Android APK
 
 on:
+  workflow_dispatch:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 jobs:
   build:
@@ -27,10 +32,19 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
-      - uses: expo/expo-github-action@v8
+      # AGP 8.x requires JDK 17+.
+      - uses: actions/setup-java@v4
         with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      # android/build.gradle pins this exact NDK. The runner ships a different
+      # default version, so install the pinned one rather than let Gradle fail
+      # twenty minutes in.
+      - name: Install pinned NDK and CMake
+        run: sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Install dependencies
         working-directory: mobile
@@ -40,28 +54,62 @@ jobs:
         working-directory: mobile
         run: npx tsc --noEmit
 
-      # Bundling catches runtime import errors that tsc cannot see. Failing
-      # here is far cheaper than failing inside a 15-minute cloud build.
-      - name: Verify the bundle builds
+      # Bundling catches runtime import errors tsc cannot see. Failing here
+      # costs a minute; failing inside Gradle costs twenty.
+      - name: Verify the JS bundle builds
         working-directory: mobile
         run: npx expo export --platform android --output-dir /tmp/bundle-check
 
-      - name: Build APK on EAS
-        working-directory: mobile
+      # Only define the variable when it is actually set. An empty string would
+      # be inlined as "" and win the `??` chain in lib/api.ts, producing a
+      # bundle whose every request goes to a relative path and fails.
+      - name: Resolve API base URL
         env:
-          EXPO_PUBLIC_API_BASE_URL: ${{ secrets.API_BASE_URL }}
-        run: eas build --platform android --profile preview --non-interactive --wait --output ../paxcast.apk
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          if [ -n "$API_BASE_URL" ]; then
+            echo "EXPO_PUBLIC_API_BASE_URL=$API_BASE_URL" >> "$GITHUB_ENV"
+            echo "Building against $API_BASE_URL"
+          else
+            echo "::warning::API_BASE_URL is not set. The APK will point at" \
+                 "http://10.0.2.2:8000, which only resolves in an emulator."
+          fi
+
+      # android/ is gitignored; regenerating it is the supported workflow.
+      # This also generates the debug.keystore that the release variant signs
+      # with by default.
+      - name: Generate the native project
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble release APK
+        working-directory: mobile/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Name the artifact
+        id: name
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          [ "${GITHUB_REF_TYPE}" = "tag" ] || VERSION="dev-${GITHUB_SHA::7}"
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk \
+             "paxcast-${VERSION}.apk"
+          echo "apk=paxcast-${VERSION}.apk" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
           name: paxcast-apk
-          path: paxcast.apk
+          path: ${{ steps.name.outputs.apk }}
+          if-no-files-found: error
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: paxcast.apk
+          files: ${{ steps.name.outputs.apk }}
           body: |
             PaxCast ${{ github.ref_name }}
 
@@ -69,6 +117,10 @@ jobs:
             data, and checkpoint wait times are unvalidated model priors until
             enough real reports accumulate. Do not use this to decide when to
             leave for a flight.
+
+            This APK is signed with the React Native debug keystore, which is
+            fine for sideloading and unacceptable for Play. Generate your own
+            keystore before publishing — see BUILD.md.
 
             Install: enable "Install unknown apps" for your browser, then open
             the APK.
