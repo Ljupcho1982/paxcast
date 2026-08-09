@@ -1,0 +1,92 @@
+# Builds the Expo web target and publishes it to GitHub Pages.
+#
+# The same React source drives this and the Android app: nothing here is a
+# reimplementation. Expo Router prerenders each route to static HTML, so the
+# result is a plain static site with no server behind it.
+#
+# Optional repository variable:
+#   API_BASE_URL - public HTTPS base URL of the deployed PaxCast API
+#
+# Without it the site renders but every data screen shows "Could not reach the
+# forecast service", because the fallback in lib/api.ts is the Android emulator
+# loopback. A browser on HTTPS would refuse that request as mixed content even
+# if it resolved.
+
+name: Web (GitHub Pages)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/pages.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it midway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: mobile
+        run: npx tsc --noEmit
+
+      # Only define it when set: an empty string would be inlined and win the
+      # `??` chain in lib/api.ts, pointing every request at a relative path.
+      - name: Resolve API base URL
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          if [ -n "$API_BASE_URL" ]; then
+            echo "EXPO_PUBLIC_API_BASE_URL=$API_BASE_URL" >> "$GITHUB_ENV"
+            echo "Building against $API_BASE_URL"
+          else
+            echo "::warning::API_BASE_URL is not set. The site will render but" \
+                 "every data screen will report that the service is unreachable."
+          fi
+
+      - name: Export web bundle
+        working-directory: mobile
+        run: npx expo export --platform web --output-dir dist
+
+      # Pages serves a project site under /<repo>. app.json sets
+      # experiments.baseUrl to match, and .nojekyll stops Pages discarding the
+      # _expo directory, whose leading underscore Jekyll treats as private.
+      - name: Add .nojekyll
+        run: touch mobile/dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: mobile/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
