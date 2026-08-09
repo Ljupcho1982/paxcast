@@ -107,6 +107,12 @@ jobs:
             -Pandroid.kotlinVersion=1.9.24 \
             --no-daemon --stacktrace
 
+      # Two names for the same file. The versioned one is what people cite;
+      # the bare one exists so that
+      #   /releases/latest/download/paxcast.apk
+      # is a permanent address. GitHub resolves that only if an asset keeps an
+      # identical filename across releases, and a QR code printed on a poster
+      # cannot be re-issued when the version changes.
       - name: Name the artifact
         id: name
         run: |
@@ -114,6 +120,8 @@ jobs:
           [ "${GITHUB_REF_TYPE}" = "tag" ] || VERSION="dev-${GITHUB_SHA::7}"
           cp mobile/android/app/build/outputs/apk/release/app-release.apk \
              "paxcast-${VERSION}.apk"
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk \
+             "paxcast.apk"
           echo "apk=paxcast-${VERSION}.apk" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
@@ -126,7 +134,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.name.outputs.apk }}
+          files: |
+            ${{ steps.name.outputs.apk }}
+            paxcast.apk
           body: |
             PaxCast ${{ github.ref_name }}
 
