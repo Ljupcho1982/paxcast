@@ -20,20 +20,36 @@ Render reads [`render.yaml`](render.yaml) and provisions the service — there i
 nothing to fill in by hand. The first build takes 3–5 minutes, most of it
 compiling nothing and downloading numpy/scipy wheels.
 
-You get a URL of the form:
+**Copy the URL from the service page in the Render dashboard.** Do not construct
+it from the service name: names are globally unique across all of Render, so if
+`paxcast-api` is already taken your service gets a suffixed hostname such as
+`paxcast-api-a7x2.onrender.com`.
 
-```
-https://paxcast-api.onrender.com
-```
-
-Confirm it is alive before going further:
+Confirm it is alive before going further, substituting your own host:
 
 ```bash
-curl https://paxcast-api.onrender.com/health
+curl https://YOUR-SERVICE.onrender.com/health
 ```
 
 Expected: `{"status":"ok","airports":20,...}`. The `airports` count proves the
 catalogue seeded; a zero there means the database did not initialise.
+
+### If you get `Not Found`
+
+Check which layer answered:
+
+```bash
+curl -i https://YOUR-SERVICE.onrender.com/health
+```
+
+- `x-render-routing: no-server` with `server: cloudflare` — **no service is
+  attached to that hostname.** Either the blueprint was never applied, or you
+  are using the wrong URL. Go back to the dashboard and copy the real one.
+- `server: uvicorn` with a JSON body — the app is running and you simply hit a
+  path it does not serve. `/health` and `/` both exist; check the spelling.
+
+A deploy that built but crashed on boot shows as a failed deploy in the
+dashboard with the traceback in its log, not as `Not Found`.
 
 ---
 
