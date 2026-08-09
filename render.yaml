@@ -1,0 +1,41 @@
+# Render Blueprint for the PaxCast API.
+#
+# Native Python runtime rather than Docker: the build and start commands below
+# are exactly the ones the project already runs locally, so there is no second
+# packaging path that can drift from the tested one.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repository.
+# Render reads this file; no settings need typing by hand.
+
+services:
+  - type: web
+    name: paxcast-api
+    runtime: python
+    plan: free
+    region: frankfurt
+
+    # api/main.py does sys.path.insert(..., "../engine"), so the service must
+    # run from api/ with engine/ as its sibling. Building from the repo root
+    # keeps that layout intact.
+    buildCommand: pip install -r api/requirements.txt
+    startCommand: cd api && uvicorn main:app --host 0.0.0.0 --port $PORT
+
+    # /health touches the database, so it fails if seeding did not complete --
+    # which is what you want a health check to catch.
+    healthCheckPath: /health
+
+    envVars:
+      # Pin the interpreter. numpy and scipy publish wheels per minor version,
+      # and an unpinned runtime that moves ahead of them turns a deploy into a
+      # source build that exceeds the free tier's memory.
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # SQLite lives on the instance filesystem. On the free plan that is
+      # ephemeral: the 20-airport catalogue re-seeds automatically on every
+      # boot, but anything added through the app -- airports, imported
+      # schedules, reported waits -- is lost on redeploy or spin-down.
+      # Attach a persistent disk (paid) and point this at its mount path to
+      # keep contributed data.
+      - key: PAXCAST_DB
+        value: paxcast.db
