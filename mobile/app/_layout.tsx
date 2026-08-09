@@ -10,6 +10,7 @@ import {
   Archivo_800ExtraBold,
 } from '@expo-google-fonts/archivo';
 import { Colors } from '@/constants/theme';
+import { FirstRunNotice } from '@/components/FirstRunNotice';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -53,6 +54,9 @@ export default function RootLayout() {
         <Stack.Screen name="contribute/schedule/[iata]" options={{ title: 'Import schedule' }} />
         <Stack.Screen name="contribute/report/[iata]" options={{ title: 'Report a wait' }} />
       </Stack>
+      {/* Rendered last so it sits above the navigator: the limitations are not
+          advice you scroll past, and the first screen shows forecast numbers. */}
+      <FirstRunNotice />
     </SafeAreaProvider>
   );
 }

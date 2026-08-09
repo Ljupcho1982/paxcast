@@ -168,9 +168,21 @@ mitigation, not a substitute for the decision.
   timestamps — that is user-contributed content and must be disclosed.
 - **Data safety form**: declare that observations are transmitted to your server.
   There is no advertising ID, no location access, and no account.
-- **Permissions**: `INTERNET` only. The earlier `ACCESS_COARSE_LOCATION` was
-  removed because nothing requests it, and an unused permission is both a review
-  flag and a reason for users to decline.
+- **Permissions**: `INTERNET` only — but verify this on the built artifact, not
+  in `app.json`. Declaring one permission does not mean the APK ships one:
+  manifest merging pulls in whatever your dependencies declare. A build from
+  commit `997605a` requested `READ_EXTERNAL_STORAGE` and
+  `WRITE_EXTERNAL_STORAGE` (from `expo-file-system`, transitive via `expo`),
+  plus `SYSTEM_ALERT_WINDOW` and `VIBRATE`, none of which this app uses.
+  `expo.android.blockedPermissions` in `app.json` now strips them. Check any
+  release build with:
+
+  ```bash
+  aapt2 dump badging app-release.apk | grep uses-permission
+  ```
+
+  An unused permission is both a review flag and a reason for users to decline —
+  `SYSTEM_ALERT_WINDOW` ("Display over other apps") especially.
 - **Target API level** must meet Google's current minimum; Expo SDK 52 does.
 
 ### 4. Trademark
@@ -186,7 +198,8 @@ mitigation, not a substitute for the decision.
 [ ] EXPO_PUBLIC_API_BASE_URL points at it, not 10.0.2.2
 [ ] eas init has replaced REPLACE_WITH_YOUR_EAS_PROJECT_ID
 [ ] Keystore generated and backed up somewhere you will not lose it
-[ ] Prototype/limitations warning visible on first run
+[x] Prototype/limitations warning visible on first run (components/FirstRunNotice.tsx)
+[ ] Permissions re-checked on the built APK, not just app.json
 [ ] Privacy policy published, if going to Play
 [ ] Decision made on real vs fictional airport identities
 ```
