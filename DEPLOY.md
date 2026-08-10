@@ -12,6 +12,14 @@ This takes about five minutes and needs a free Render account.
 
 ## 1. Deploy
 
+Fastest route — this link opens Render with the blueprint already selected:
+
+**<https://render.com/deploy?repo=https://github.com/Ljupcho1982/paxcast>**
+
+Sign in with GitHub, then click **Apply**. That is the whole deployment.
+
+Or manually:
+
 1. Sign up at <https://render.com> (free; GitHub login works).
 2. **New → Blueprint**.
 3. Select the `paxcast` repository and apply.

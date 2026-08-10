@@ -1,7 +1,21 @@
 # PaxCast
 
 Probabilistic airport passenger-throughput forecasting. Monte Carlo simulation
-engine, FastAPI service, and an Expo/React Native Android client.
+engine, FastAPI service, and an Expo/React Native client for Android, iOS and
+the web.
+
+**Try it:** [ljupcho1982.github.io/paxcast](https://ljupcho1982.github.io/paxcast/)
+— installable on iPhone via Safari → Add to Home Screen, and on Android via
+Chrome → Install app.
+
+**Deploy the API:**
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Ljupcho1982/paxcast)
+
+The clients render but cannot load or save anything until an API is reachable
+over HTTPS. That button reads [`render.yaml`](render.yaml) and provisions the
+service with nothing to configure by hand; afterwards set the repository
+variable `API_BASE_URL` to the resulting URL and re-run the two workflows. Full
+walkthrough in [DEPLOY.md](DEPLOY.md).
 
 The product thesis in one line: **airports plan against a single number, and the
 single number carries no information about how wrong it might be.** PaxCast
