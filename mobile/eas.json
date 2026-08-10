@@ -2,10 +2,17 @@
   "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
   "build": {
     "preview": {
-      "//": "Installable APK for sideloading and internal testing. This is the profile that produces a file you can hand to someone directly.",
+      "//": "Installable APK for sideloading and internal testing. This is the profile that produces a file you can hand to someone directly. On iOS there is no sideloading equivalent: `internal` distribution builds an ad-hoc IPA that installs only on devices whose UDID is registered in the provisioning profile.",
       "android": { "buildType": "apk" },
+      "ios": { "simulator": false },
       "distribution": "internal",
       "channel": "preview",
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "https://paxcast-api.example.com" }
+    },
+    "ios-simulator": {
+      "//": "Unsigned build for the iOS Simulator. The only iOS build that needs no Apple Developer account -- and it runs only on a Mac, never on a phone.",
+      "ios": { "simulator": true },
+      "distribution": "internal",
       "env": { "EXPO_PUBLIC_API_BASE_URL": "https://paxcast-api.example.com" }
     },
     "development": {
@@ -15,8 +22,9 @@
       "env": { "EXPO_PUBLIC_API_BASE_URL": "http://10.0.2.2:8000" }
     },
     "production": {
-      "//": "AAB for Play Store submission. Play does not accept APKs for new apps.",
+      "//": "AAB for Play Store submission (Play does not accept APKs for new apps) and a signed IPA for App Store Connect / TestFlight.",
       "android": { "buildType": "app-bundle" },
+      "ios": { "distribution": "store" },
       "channel": "production",
       "autoIncrement": true,
       "env": { "EXPO_PUBLIC_API_BASE_URL": "https://paxcast-api.example.com" }

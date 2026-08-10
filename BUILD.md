@@ -1,4 +1,49 @@
-# Building and distributing PaxCast for Android
+# Building and distributing PaxCast
+
+## iOS
+
+The JavaScript is platform-agnostic and verified: `expo export --platform ios`
+produces a 3.22 MB bundle, there are no `.ios.tsx` overrides, and every
+dependency the app imports supports iOS. `app.json` carries the
+`ios.bundleIdentifier`, and `eas.json` has the build profiles.
+
+**What is missing is not code.** Compiling and signing an iOS binary requires
+macOS and Xcode — Apple permits no other toolchain — and installing one on a
+physical iPhone requires membership of the Apple Developer Program ($99/year).
+Neither is something a Windows machine can provide.
+
+| Route | Needs a Mac? | Needs $99 Apple account? | Runs on a real iPhone? |
+|---|---|---|---|
+| EAS Build → TestFlight | no | **yes** | yes |
+| EAS Build → ad-hoc (`preview`) | no | **yes** | only registered UDIDs |
+| EAS Build → `ios-simulator` | **yes**, to run it | no | no, simulator only |
+| Local `xcodebuild` | **yes** | for devices | yes |
+| Safari → Add to Home Screen | no | no | yes, as a web app |
+
+The last row is the only one that costs nothing and works today:
+
+```
+Open the site in Safari → Share → Add to Home Screen
+```
+
+That gives a fullscreen icon on the home screen. It is not an App Store app —
+no push notifications, and iOS may evict its cached data if storage runs low —
+but for a prototype seeking feedback it removes every blocker at once.
+
+With an Apple Developer account, the native route is:
+
+```bash
+cd mobile
+eas build --platform ios --profile production
+eas submit --platform ios          # uploads to TestFlight
+```
+
+EAS builds on Apple hardware in the cloud, so no Mac is needed — only the paid
+account, because Apple issues the signing certificates.
+
+---
+
+# Android
 
 Everything in the repo is release-ready except the two things that require your
 accounts: a build service and a distribution channel. This document covers both.

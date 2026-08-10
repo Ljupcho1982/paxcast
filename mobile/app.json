@@ -29,6 +29,15 @@
         "android.permission.VIBRATE"
       ]
     },
+    "ios": {
+      "bundleIdentifier": "mk.paxcast.app",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "//": "The API is reached over HTTPS in any real deployment, so App Transport Security stays at its default. Do not add NSAllowsArbitraryLoads to talk to a plain-HTTP dev server -- App Review rejects it, and it would weaken every request the app makes.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "plugins": [
       "expo-router"
     ],
