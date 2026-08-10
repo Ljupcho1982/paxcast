@@ -80,6 +80,10 @@ jobs:
           # only when this is set, because it is not web-scoped: leaving it in
           # app.json rewrote the native Android asset URLs too.
           PAXCAST_WEB_BASE_URL: /paxcast
+          # Same prefix, but readable from inside the bundle. app/+html.tsx
+          # needs it for the manifest and apple-touch-icon hrefs, and only
+          # EXPO_PUBLIC_* variables are inlined at build time.
+          EXPO_PUBLIC_WEB_BASE_URL: /paxcast
         run: npx expo export --platform web --clear --output-dir dist
 
       # Pages serves a project site under /<repo>. app.json sets
