@@ -126,7 +126,7 @@ class ForecastResult:
     percentiles: dict[str, list[float]]   # "p5" -> per-day values
     mean: list[float]
     total_percentiles: dict[str, float]   # horizon totals
-    peak_hour_grid: list[list[float]]     # (7 weekdays x 24 hours) median pax
+    peak_hour_grid: list[list[float]]     # (7 weekdays x 24 hours) mean pax
     exceedance: dict[str, float]
     n_iterations: int
     converged: bool
@@ -134,6 +134,19 @@ class ForecastResult:
     runtime_ms: float
     data_quality: float
     confidence: str
+
+    # Hourly load with uncertainty attached, same (7 x 24) shape as
+    # peak_hour_grid. Staffing a checkpoint against the mean hour is the single
+    # -number thinking this product exists to argue against, so lane sizing
+    # reads these rather than the grid.
+    #
+    # These describe the *average* occurrence of a given weekday-hour over the
+    # horizon, matching peak_hour_grid's semantics. For horizons of a week or
+    # less -- the operational planning case -- each weekday occurs once and the
+    # quantity is exact. Over longer horizons it smooths across repeats and
+    # will understate the worst single Tuesday.
+    peak_hour_p50: list[list[float]] = field(default_factory=list)
+    peak_hour_p90: list[list[float]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         from dataclasses import asdict

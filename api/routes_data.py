@@ -429,6 +429,7 @@ def add_checkpoint(
         name=payload.name,
         zone=payload.zone,
         lane_type=payload.lane_type,
+        lanes=payload.lanes,
         prior_base=round(float(base), 3),
         prior_sig=round(float(sig), 4),
     )
@@ -440,6 +441,7 @@ def add_checkpoint(
         "name": cp.name,
         "zone": cp.zone,
         "lane_type": cp.lane_type,
+        "lanes": cp.lanes,
         "prior_base": cp.prior_base,
         "prior_sig": cp.prior_sig,
         "prior_source": prior_note,
@@ -461,6 +463,7 @@ def list_checkpoints(iata: str, session: Session = Depends(get_session)) -> dict
                 "name": c.name,
                 "zone": c.zone,
                 "lane_type": c.lane_type,
+                "lanes": c.lanes,
                 "base": round(c.effective_base, 2),
                 "sig": round(c.effective_sig, 4),
                 "prior_base": c.prior_base,
@@ -473,6 +476,124 @@ def list_checkpoints(iata: str, session: Session = Depends(get_session)) -> dict
             if c.active
         ],
     }
+
+
+@router.get("/checkpoints/{cp_id}/lane-plan")
+def lane_plan(
+    cp_id: int,
+    target_wait: float = Query(15.0, gt=0, le=180),
+    service_level: float = Query(0.80, ge=0.5, lt=1.0),
+    day_of_week: int = Query(0, ge=0, le=6, description="0 = Monday"),
+    demand_percentile: int = Query(90, description="50 or 90"),
+    change_penalty: float = Query(0.75, ge=0, le=10),
+    session: Session = Depends(get_session),
+) -> dict:
+    """How many lanes to open, hour by hour, to hold a wait target.
+
+    Sized against a *percentile* of hourly demand rather than its mean. Staffing
+    to the average hour is the single-number thinking this product exists to
+    argue against, and it is wrong exactly half the time by construction.
+    """
+    from lanes import build_lane_plan, calibration_factor
+
+    cp = session.get(CheckpointRow, cp_id)
+    if not cp or not cp.active:
+        raise HTTPException(404, f"Unknown checkpoint: {cp_id}")
+    row = cp.airport
+    if not row.flights:
+        raise HTTPException(
+            422,
+            f"{row.iata} has no schedule loaded, so hourly demand cannot be "
+            f"modelled. Import flights before requesting a lane plan.",
+        )
+
+    hourly = _hourly_departing(row, day_of_week, demand_percentile)
+    if hourly is None:
+        raise HTTPException(422, "Could not model hourly demand for this airport.")
+
+    # Anchor the model to what this checkpoint has actually been observed to
+    # do, where there is anything to anchor to.
+    calib = calibration_factor(
+        fit_base=cp.fit_base,
+        fit_n=cp.fit_n,
+        hourly_pax_at_fit=max(hourly) if hourly else 0.0,
+        lanes_at_fit=cp.lanes,
+        throughput_per_lane_hour=cp.throughput_per_lane_hour,
+    )
+
+    plan = build_lane_plan(
+        hourly_pax=hourly,
+        physical_lanes=cp.lanes,
+        target_wait_min=target_wait,
+        service_level=service_level,
+        throughput_per_lane_hour=cp.throughput_per_lane_hour,
+        change_penalty=change_penalty,
+        calibration=calib,
+        basis="fitted" if cp.fit_base is not None else "prior",
+        fit_n=cp.fit_n,
+    )
+
+    out = plan.to_dict()
+    out.update(
+        {
+            "checkpoint_id": cp.id,
+            "checkpoint": cp.name,
+            "airport": row.iata,
+            "day_of_week": day_of_week,
+            "demand_percentile": demand_percentile,
+            "hourly_pax": [round(p, 1) for p in hourly],
+            "physical_lanes": cp.lanes,
+            "target_wait_min": target_wait,
+            "service_level": service_level,
+            # A lane plan is never more trustworthy than the wait model under
+            # it. With no reports the queue model is doing all the work and
+            # that model calls itself unvalidated, so the floor is LOW.
+            "confidence": (
+                "HIGH" if cp.fit_n >= 100 else "MEDIUM" if cp.fit_n >= 25 else "LOW"
+            ),
+        }
+    )
+    if plan.basis == "prior":
+        out["caveat"] = (
+            "Derived from an unvalidated queue model whose constants are "
+            "engineering estimates, not fitted values. Treat as an engineering "
+            "estimate, not a staffing recommendation, until this checkpoint has "
+            "accumulated reported waits."
+        )
+    if plan.understaffed_hours:
+        out["caveat_capacity"] = (
+            f"Hours {plan.understaffed_hours} need more lanes than the "
+            f"{cp.lanes} this checkpoint has. The plan opens everything "
+            f"available; the target will still be missed."
+        )
+    return out
+
+
+def _hourly_departing(row: AirportRow, weekday: int, percentile: int) -> list[float] | None:
+    """Modelled departing passengers per hour for one weekday.
+
+    Only departing passengers pass through security, and peak_hour_grid counts
+    arrivals and departures together (the ACI convention the engine uses), so
+    the row is halved -- the same convention as _prior_from_engine.
+    """
+    try:
+        from datetime import date
+
+        from paxcast import PaxCastEngine, SimulationConfig
+
+        result = PaxCastEngine().simulate(
+            row_to_airport(row),
+            SimulationConfig(start_date=date.today(), horizon_days=7, n_iterations=1500),
+        )
+        grid = {
+            50: result.peak_hour_p50,
+            90: result.peak_hour_p90,
+        }.get(percentile) or result.peak_hour_grid
+        if not grid or weekday >= len(grid):
+            return None
+        return [float(v) / 2.0 for v in grid[weekday]]
+    except Exception:
+        return None
 
 
 @router.delete("/checkpoints/{cp_id}", status_code=204)

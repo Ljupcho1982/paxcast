@@ -27,6 +27,7 @@ import {
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { C, F, T, S, ink, RADIUS } from '@/constants/modernist';
 import { Btn, Kicker, SectionRule, Segmented } from '@/components/Modernist';
+import { LaneProfile } from '@/components/LaneProfile';
 import { ApiError, contribute, type CheckpointRecord, type FitResult } from '@/lib/api';
 
 const QUICK = [5, 10, 15, 20, 30, 45, 60, 90];
@@ -198,6 +199,19 @@ export default function ReportWaitScreen() {
         ))}
       </View>
       <SectionRule />
+
+      {/* Shown here because this is the only screen holding a real checkpoint
+          id. It also closes the loop the reporting flow opens: reports sharpen
+          the wait model, and the lane plan is what that sharper model buys. */}
+      {selected ? (
+        <>
+          <View style={s.block}>
+            <Kicker>LANES TO OPEN</Kicker>
+            <LaneProfile checkpointId={selected.id} />
+          </View>
+          <SectionRule />
+        </>
+      ) : null}
 
       <View style={s.block}>
         <Kicker>HOW LONG DID YOU QUEUE</Kicker>

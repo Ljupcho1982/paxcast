@@ -295,3 +295,72 @@ def test_confidence_label_respects_data_quality():
     poor = build_airport(tuple(spec))
     res = PaxCastEngine().simulate(poor, cfg())
     assert res.confidence == "LOW"
+
+
+# ---------------------------------------------------------------- hourly bands
+
+
+def test_hourly_percentiles_have_the_grid_shape():
+    res = PaxCastEngine().simulate(get_airport("SKP"), cfg())
+    for grid in (res.peak_hour_p50, res.peak_hour_p90):
+        assert len(grid) == 7
+        assert all(len(row) == 24 for row in grid)
+
+
+def test_hourly_p90_is_never_below_p50():
+    """Lane sizing reads p90. If the ordering inverted anywhere, the plan would
+    quietly staff the busiest hours *below* the median."""
+    res = PaxCastEngine().simulate(get_airport("VIE"), cfg())
+    for wd in range(7):
+        for h in range(24):
+            assert res.peak_hour_p90[wd][h] >= res.peak_hour_p50[wd][h] - 1e-6
+
+
+def test_hourly_bands_bracket_the_mean_grid():
+    """peak_hour_grid is the mean of the same quantity the percentiles describe,
+    so it has to sit inside the band -- give or take rounding. This is the
+    cross-check that the two are computed from the same passengers."""
+    res = PaxCastEngine().simulate(get_airport("SKP"), cfg())
+    for wd in range(7):
+        for h in range(24):
+            mean = res.peak_hour_grid[wd][h]
+            if mean <= 0:
+                continue
+            assert res.peak_hour_p90[wd][h] >= mean * 0.9
+
+
+def test_peak_hour_grid_level_is_stable():
+    """The grid is consumed by the client and by suggest_prior_from_throughput.
+
+    Deliberately a level check, not an equality check. Sorting the flight table
+    by hour permutes which flight draws which RNG column, so exact per-flight
+    values move even at a fixed seed -- statistically equivalent, not
+    bit-identical. The *aggregate* is what downstream code reads, and across
+    repeated runs it varies by ~0.2%.
+    """
+    res = PaxCastEngine().simulate(get_airport("SKP"), cfg())
+    total = sum(sum(row) for row in res.peak_hour_grid)
+    assert total == pytest.approx(54300.0, rel=0.02)
+
+
+def test_hour_sorting_keeps_per_flight_arrays_aligned():
+    """The flight table is now sorted by departure hour.
+
+    Permuting some per-flight arrays but not others would pair a flight's seats
+    with another's load-factor prior -- corrupting the forecast while leaving it
+    entirely plausible-looking. So compare the (seats, hour) pairs the table
+    holds against the airport's own flights as multisets.
+    """
+    from collections import Counter
+
+    airport = get_airport("SKP")
+    table = PaxCastEngine()._build_flight_table(airport, Scenario())
+
+    expected = Counter(
+        (float(f.seats), min(f.sched_minute // 60, 23)) for f in airport.flights
+    )
+    actual = Counter(
+        (float(s), int(h)) for s, h in zip(table["seats"], table["sched_hour"])
+    )
+    assert actual == expected
+    assert list(table["sched_hour"]) == sorted(table["sched_hour"])

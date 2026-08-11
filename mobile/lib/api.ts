@@ -257,6 +257,50 @@ export interface FitResult {
   note: string;
 }
 
+export interface LanePlan {
+  checkpoint_id: number;
+  checkpoint: string;
+  airport: string;
+  hours: number[];
+  hourly_pax: number[];
+  /** Minimum lanes per hour to hold the target. */
+  required: number[];
+  /** Smoothed, implementable profile — always >= required. */
+  planned: number[];
+  lane_hours: number;
+  peak_hour: number;
+  physical_lanes: number;
+  target_wait_min: number;
+  service_level: number;
+  demand_percentile: number;
+  day_of_week: number;
+  /** Hours where every lane is open and the target is still missed. */
+  understaffed_hours: number[];
+  /** 'prior' means no reported waits exist yet and the queue model is unvalidated. */
+  basis: 'prior' | 'fitted';
+  fit_n: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  caveat?: string;
+  caveat_capacity?: string;
+}
+
+export async function fetchLanePlan(
+  checkpointId: number,
+  opts: { targetWait?: number; serviceLevel?: number; dayOfWeek?: number } = {},
+): Promise<LanePlan> {
+  const q = new URLSearchParams({
+    target_wait: String(opts.targetWait ?? 15),
+    service_level: String(opts.serviceLevel ?? 0.8),
+    day_of_week: String(opts.dayOfWeek ?? 0),
+    demand_percentile: '90',
+  });
+  return request<LanePlan>(
+    `/checkpoints/${checkpointId}/lane-plan?${q}`,
+    undefined,
+    `laneplan:${checkpointId}:${q}`,
+  );
+}
+
 /** Surfaces the server's specific validation message instead of a generic failure. */
 export class ApiError extends Error {
   constructor(

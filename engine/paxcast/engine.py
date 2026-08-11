@@ -116,6 +116,22 @@ class PaxCastEngine:
             [min(f.sched_minute // 60, 23) for f in flights], dtype=np.int64
         )
 
+        # Sort every per-flight array by departure hour. This makes the flights
+        # of any one hour a *contiguous* column range, so per-iteration hourly
+        # load is 24 slice-sums over the pax matrix rather than a scattered
+        # add.at or a (iterations x flights) @ (flights x 24) one-hot matmul.
+        # At LHR scale that matmul would be ~770 MFLOP per simulated day; the
+        # slice-sums touch each column once, like the existing mean does.
+        # np.flatnonzero returns ascending indices, so any weekday's selection
+        # inherits this ordering.
+        order = np.argsort(sched_hour, kind="stable")
+        seats = seats[order]
+        table_idx = table_idx[order]
+        base_cancel = base_cancel[order]
+        group_ids = group_ids[order]
+        operates = operates[:, order]
+        sched_hour = sched_hour[order]
+
         return {
             "n": n,
             "seats": seats,
@@ -173,6 +189,7 @@ class PaxCastEngine:
         calib = float(getattr(airport, "calibration_factor", 1.0) or 1.0)
 
         collected: list[np.ndarray] = []
+        collected_hours: list[np.ndarray] = []
         hour_accum = np.zeros((7, 24), dtype=np.float64)
         hour_counts = np.zeros(7, dtype=np.int64)
         total_iters, converged, rel_se = 0, False, float("inf")
@@ -188,6 +205,10 @@ class PaxCastEngine:
             collected.append(daily)
             hour_accum += hours[0]
             hour_counts += hours[1]
+            # Every batch simulates the full horizon, so its per-weekday day
+            # count is the same. Divide here to get a per-iteration *average*
+            # weekday-hour load before concatenating.
+            collected_hours.append(hours[2] / np.maximum(hours[1], 1)[:, None, None])
             total_iters += k
 
             if config.adaptive and total_iters >= config.min_iterations:
@@ -204,6 +225,7 @@ class PaxCastEngine:
         return self._assemble(
             airport, config, scenario, daily_all, hour_accum, hour_counts,
             total_iters, converged, rel_se, (time.perf_counter() - t0) * 1000.0,
+            np.concatenate(collected_hours, axis=2),
         )
 
     # ------------------------------------------------------------------
@@ -246,6 +268,16 @@ class PaxCastEngine:
         daily = np.empty((n_iter, n_days), dtype=np.float32)
         hour_accum = np.zeros((7, 24), dtype=np.float64)
         hour_counts = np.zeros(7, dtype=np.int64)
+        # Per-iteration hourly load, summed over the days sharing a weekday.
+        # Bounded by iterations, not horizon: 13 MB at 20k iterations whether
+        # the forecast covers a week or two years.
+        #
+        # Iteration is the LAST axis deliberately. With (n_iter, 7, 24) the
+        # accumulation target hour_iter[:, wd, h] is a stride-672B column, and
+        # writing it 24 times per simulated day made the engine several times
+        # slower. Here hour_iter[wd, h] is contiguous, so the update is a flat
+        # vector add.
+        hour_iter = np.zeros((7, 24, n_iter), dtype=np.float32)
         demand_mult = np.float32(scenario.demand_multiplier * calib)
 
         for d in range(n_days):
@@ -301,7 +333,17 @@ class PaxCastEngine:
             np.add.at(hour_accum[wd], sched_hour[idx], pax.mean(axis=0))
             hour_counts[wd] += 1
 
-        return daily, (hour_accum, hour_counts)
+            # Keep the iteration axis so the hour has a distribution, not just
+            # a mean. The flight table is hour-sorted, so each hour owns a
+            # contiguous column block and searchsorted gives its bounds.
+            hours_today = sched_hour[idx]
+            bounds = np.searchsorted(hours_today, np.arange(25))
+            for h in range(24):
+                lo, hi = bounds[h], bounds[h + 1]
+                if hi > lo:
+                    hour_iter[wd, h] += pax[:, lo:hi].sum(axis=1)
+
+        return daily, (hour_accum, hour_counts, hour_iter)
 
     # ------------------------------------------------------------------
 
@@ -354,7 +396,7 @@ class PaxCastEngine:
 
     def _assemble(
         self, airport, config, scenario, daily, hour_accum, hour_counts,
-        n_iter, converged, rel_se, runtime_ms,
+        n_iter, converged, rel_se, runtime_ms, hour_iter,
     ) -> ForecastResult:
         dates = [
             (config.start_date + timedelta(days=d)).isoformat()
@@ -388,6 +430,8 @@ class PaxCastEngine:
             mean=daily.mean(axis=0).round(1).tolist(),
             total_percentiles=total_pct,
             peak_hour_grid=grid_arr.round(1).tolist(),
+            peak_hour_p50=np.percentile(hour_iter, 50, axis=2).round(1).tolist(),
+            peak_hour_p90=np.percentile(hour_iter, 90, axis=2).round(1).tolist(),
             exceedance=exceedance,
             n_iterations=int(n_iter),
             converged=bool(converged),

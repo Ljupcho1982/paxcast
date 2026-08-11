@@ -157,6 +157,13 @@ class CheckpointRow(Base):
     zone: Mapped[str] = mapped_column(String(120), default="")
     lane_type: Mapped[str] = mapped_column(String(20), default="standard")  # standard | expedited | premium
 
+    # Physical capacity. Until lane allocation existed, `lanes` was accepted at
+    # creation, used once to derive the prior, and then thrown away -- so the
+    # database could not answer "how many lanes does this checkpoint have?",
+    # which is the decision variable the lane planner solves for.
+    lanes: Mapped[int] = mapped_column(Integer, default=4)
+    throughput_per_lane_hour: Mapped[float] = mapped_column(Float, default=150.0)
+
     # Prior: where the checkpoint sits before it has any observations of its own.
     prior_base: Mapped[float] = mapped_column(Float, default=12.0)
     prior_sig: Mapped[float] = mapped_column(Float, default=0.50)
@@ -249,6 +256,38 @@ SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
 
 def init_db() -> None:
     Base.metadata.create_all(_engine)
+    _add_missing_columns()
+
+
+# Columns added after the first release. create_all() creates missing *tables*
+# and silently ignores missing *columns*, so an existing database would keep
+# working until the first query touched a new one and SQLite raised
+# "no such column". The project has no migration tool and SQLite supports
+# additive ALTERs cheaply, so the additions are applied directly.
+#
+# Additive only: no renames, no drops, no type changes. Anything beyond that
+# needs a real migration story rather than this.
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "checkpoints": {
+        "lanes": "INTEGER NOT NULL DEFAULT 4",
+        "throughput_per_lane_hour": "FLOAT NOT NULL DEFAULT 150.0",
+    },
+}
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import text
+
+    with _engine.begin() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {
+                row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))
+            }
+            if not existing:
+                continue  # table not created yet; create_all will include them
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def reset_db() -> None:
